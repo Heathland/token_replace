@@ -1,0 +1,215 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app: '#{APP_NAME}#'
+    env: acc
+  name: acc-#{APP_NAME}#
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app: '#{APP_NAME}#'
+    env: acc
+  name: acc-acr-#{APP_NAME}#
+  namespace: acc-#{APP_NAME}#
+stringData:
+  .dockerconfigjson: '#{ACR_DOCKERJSON}#'
+type: kubernetes.io/dockerconfigjson
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app: '#{APP_NAME}#'
+    env: acc
+  name: acc-app-secrets-#{APP_NAME}#
+  namespace: acc-#{APP_NAME}#
+stringData:
+  APP_ENV: '#{APP_ENV}#'
+  solr-password: '#{SOLR_PASSWORD}#'
+  tls-keystore-password: '#{SECRET_TRUSTSTORE}#'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: '#{APP_NAME}#'
+    env: acc
+  name: acc-#{APP_NAME}#
+  namespace: acc-#{APP_NAME}#
+spec:
+  loadBalancerIP: 10.65.1.13
+  ports:
+  - name: tcp-client
+    port: 8983
+    protocol: TCP
+    targetPort: solr-client
+  selector:
+    app: '#{APP_NAME}#'
+    app.kubernetes.io/component: solr
+    env: acc
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: '#{APP_NAME}#'
+    env: acc
+  name: acc-headless-#{APP_NAME}#
+  namespace: acc-#{APP_NAME}#
+spec:
+  clusterIP: None
+  ports:
+  - name: tcp-client
+    port: 8983
+    protocol: TCP
+    targetPort: solr-client
+  publishNotReadyAddresses: true
+  selector:
+    app: '#{APP_NAME}#'
+    app.kubernetes.io/component: solr
+    env: acc
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: '#{APP_NAME}#'
+    env: acc
+  name: acc-#{APP_NAME}#
+  namespace: acc-#{APP_NAME}#
+spec:
+  podManagementPolicy: Parallel
+  replicas: 3
+  selector:
+    matchLabels:
+      app: '#{APP_NAME}#'
+      env: acc
+  serviceName: acc-headless-#{APP_NAME}#
+  template:
+    metadata:
+      labels:
+        app: '#{APP_NAME}#'
+        env: acc
+    spec:
+      containers:
+      - command:
+        - bash
+        - -ec
+        - |
+          NODE_ID="${MY_POD_NAME: -1}"
+          if [[ "$NODE_ID" -eq "0" ]]; then
+            export SOLR_CLOUD_BOOTSTRAP=yes
+          fi
+          # Use hostname instead of IP to register in Zookeeper
+          export SOLR_HOST="${MY_POD_NAME}.#{APP_ENV}#-headless-#{APP_NAME}#.${MY_NAMESPACE}.svc.cluster.local"
+          /opt/bitnami/scripts/solr/entrypoint.sh /opt/bitnami/scripts/solr/run.sh
+        env:
+        - name: MY_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: MY_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: SOLR_ENABLE_CLOUD_MODE
+          value: "yes"
+        - name: SOLR_NUMBER_OF_NODES
+          value: "3"
+        - name: SOLR_PORT_NUMBER
+          value: "8983"
+        - name: SOLR_SERVER_DIRECTORY
+          value: server
+        - name: SOLR_COLLECTION
+          value: master_huk_PriceRow_default
+        - name: SOLR_COLLECTION_SHARDS
+          value: "1"
+        - name: SOLR_COLLECTION_REPLICAS
+          value: "3"
+        - name: SOLR_ENABLE_AUTHENTICATION
+          value: "yes"
+        - name: SOLR_ADMIN_USERNAME
+          value: admin
+        - name: SOLR_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: solr-password
+              name: acc-app-secrets-#{APP_NAME}#
+        - name: SOLR_ZK_HOSTS
+          value: '#{APP_ENV}#-#{APP_NAME}#-zookeeper-0:2888:3888,#{APP_ENV}#-#{APP_NAME}#-zookeeper-1:2888:3888,#{APP_ENV}#-#{APP_NAME}#-zookeeper-2:2888:3888'
+        - name: SOLR_SSL_ENABLED
+          value: "yes"
+        - name: SOLR_SSL_KEY_STORE
+          value: /opt/bitnami/solr/certs/keystore.p12
+        - name: SOLR_SSL_KEY_STORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: tls-keystore-password
+              name: acc-app-secrets-#{APP_NAME}#
+        - name: SOLR_SSL_TRUST_STORE
+          value: /opt/bitnami/java/jre/lib/security/cacerts
+        - name: SOLR_SSL_TRUST_STORE_PASSWORD
+          value: ""
+        - name: SOLR_SSL_CHECK_PEER_NAME
+          value: "false"
+        image: '#{IMAGE_REGISTRY}#/#{IMAGE_SOLR_REPOSITORY}#:#{SOLR_IMAGETAG}#'
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /solr
+            port: 8983
+          initialDelaySeconds: 0
+          periodSeconds: 5
+        name: solr
+        ports:
+        - containerPort: 8983
+          name: solr-client
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /solr
+            port: 8983
+          initialDelaySeconds: 0
+          periodSeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+        startupProbe:
+          failureThreshold: 12
+          httpGet:
+            path: /solr
+            port: 8983
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /bitnami/solr
+          name: data
+        - mountPath: /opt/bitnami/solr/certs
+          name: certs
+          readOnly: true
+      imagePullSecrets:
+      - name: acc-acr-#{APP_NAME}#
+      volumes:
+      - name: certs
+        secret:
+          secretName: star.heineken.co.uk-tls-p12
+  updateStrategy:
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - metadata:
+      labels:
+        app: '#{APP_NAME}#'
+        env: acc
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 8Gi
+TERM: #{TERM}#
