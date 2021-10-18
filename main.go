@@ -11,7 +11,7 @@ import (
 
 var startToken, endToken string
 
-var Version = "v1.0.0-rc1"
+var version, commit, date string
 
 func main() {
 	fileInput := flag.String("f", "", "file input")
@@ -22,7 +22,10 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("Token Replacer: %v\n", Version)
+		fmt.Println("Token Replacer")
+		fmt.Printf("Version: %v\n", version)
+		fmt.Printf("Commit: %v\n", commit)
+		fmt.Printf("Date: %v\n", date)
 		os.Exit(0)
 	}
 
