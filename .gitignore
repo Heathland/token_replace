@@ -17,3 +17,7 @@
 # vendor/
 
 *.yaml
+
+dist/
+
+.goreleaser.yml
