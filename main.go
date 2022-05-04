@@ -29,7 +29,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *showHelp || flag.NFlag() == 0 {
+	if *showHelp {
 		fmt.Println("Token replacer syntax:")
 		flag.PrintDefaults()
 		os.Exit(0)
@@ -39,7 +39,7 @@ func main() {
 	// Else we just take the path of the file being defined
 	var output string
 	var err error
-	if *fileInput == "-" {
+	if *fileInput == "-" || *fileInput == "" {
 		output, err = ReadFromPipe()
 	} else {
 		output, err = ReadFromFile(*fileInput)
@@ -65,12 +65,14 @@ func ReadFromFile(s string) (o string, err error) {
 func ReadFromPipe() (o string, err error) {
 	reader := bufio.NewScanner(os.Stdin)
 	for reader.Scan() {
-		o = RegexReplace(reader.Text())
+		o += fmt.Sprintln(RegexReplace(reader.Text()))
 	}
 
 	if err = reader.Err(); err != nil {
 		return
 	}
+
+	o = strings.TrimSuffix(o, "\n")
 	return
 }
 
